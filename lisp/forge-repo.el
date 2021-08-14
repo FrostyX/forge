@@ -167,6 +167,7 @@ repository, if any."
 
 (cl-defmethod forge-get-repository ((url string) &optional remote demand)
   "Return the repository at URL."
+  (print (forge--split-url url))
   (if-let ((parts (forge--split-url url)))
       (forge-get-repository parts remote demand)
     (when (memq demand forge--signal-no-entry)
@@ -307,7 +308,7 @@ Return the repository identified by HOST, OWNER and NAME."
          (?o . ,owner)
          (?n . ,name)
          (?p . ,path)
-         (?P . ,(replace-regexp-in-string "/" "%2F" path)))))))
+         (?P . ,(replace-regexp-in-string "/" "/" path)))))))
 
 (cl-defmethod forge-get-url ((repo forge-repository))
   (forge--format (oref repo remote) 'remote-url-format))
@@ -356,7 +357,8 @@ Return the repository identified by HOST, OWNER and NAME."
     (forge-github-repository    'github)
     (forge-gitea-repository     'gitea)
     (forge-gogs-repository      'gogs)
-    (forge-bitbucket-repository 'bitbucket)))
+    (forge-bitbucket-repository 'bitbucket)
+    (forge-pagure-repository    'pagure)))
 
 ;;; _
 (provide 'forge-repo)

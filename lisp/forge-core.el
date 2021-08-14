@@ -61,6 +61,8 @@
      "salsa.debian.org" forge-gitlab-repository)
     ("framagit.org" "framagit.org/api/v4"
      "framagit.org" forge-gitlab-repository)
+    ("pagure.io" "pagure.io/api/0"
+     "pagure.io" forge-pagure-repository)
     ;; Forges (API unsupported)
     ("codeberg.org" "codeberg.org/api/v1"
      "codeberg.org" forge-gitea-repository)
@@ -230,7 +232,7 @@ at that time."
            (?o . ,owner)
            (?n . ,name)
            (?p . ,path)
-           (?P . ,(replace-regexp-in-string "/" "%2F" path)))))
+           (?P . ,(replace-regexp-in-string "/" "/" path)))))
     (user-error "Cannot browse non-forge remote %s" remote)))
 
 (defun forge--url-regexp ()
@@ -305,8 +307,8 @@ at that time."
                              (cl-case slot
                                (repo    (oref object name))
                                (project (concat (replace-regexp-in-string
-                                                 "/" "%2F" (oref object owner))
-                                                "%2F"
+                                                 "/" "/" (oref object owner))
+                                                "/"
                                                 (oref object name)))
                                (topic   (and (forge--childp object 'forge-topic)
                                              (oref object number)))

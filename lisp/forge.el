@@ -56,6 +56,7 @@
 (require 'forge-gogs)
 (require 'forge-bitbucket)
 (require 'forge-semi)
+(require 'forge-pagure)
 
 (require 'forge-commands)
 (require 'forge-list)
