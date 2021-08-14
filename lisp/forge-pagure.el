@@ -49,7 +49,30 @@
    ))
 
 
-;;; Factories
+;;; Factories / Decoders
+;;; APIs evolve, grow, and change. Let's do the Elm approach here and define a
+;;; minimal functions (decoders) just for parsing the fetched JSON.
+
+(defun forge-repository-from-alist (data)
+  (let-alist data
+    (list
+     (cons 'created (timestamp-to-iso .date_created))
+     (cons 'updated (timestamp-to-iso .date_modified))
+     (cons 'pushed nil)
+     (cons 'parent nil) ; TODO
+     (cons 'description .description)
+     (cons 'homepage nil)
+     (cons 'default-branch nil) ; TODO Needs additional request
+     (cons 'archived nil) ; TODO Make sure there is no archiving in pagure
+     (cons 'fork-p nil) ; TODO
+     (cons 'locked-p nil) ; TODO
+     (cons 'mirror-p nil)
+     (cons 'private-p nil) ;; TODO Probably needs additional request
+     (cons 'issues-p t) ;; TODO Probably needs additional request
+     (cons 'wiki-p nil) ; TODO
+     (cons 'stars 0) ; TODO Is there even API for this?
+     (cons 'watchers 0) ; TODO Needs additional request
+     )))
 
 (defun forge-issue-from-alist (repo data)
   (let-alist data
@@ -62,12 +85,19 @@
               ("Open" 'open))
      :author .user.name
      :title .title
-     :created .date_created
-     :updated .last_updated
+     :created (timestamp-to-iso .date_created)
+     :updated (timestamp-to-iso .last_updated)
      :closed .closed_at
      :locked-p nil
      :milestone nil ; TODO
      :body (forge--sanitize-string .content))))
+
+;; TODO continue here
+(defun forge-issue-post-from-alist (issue-id data)
+  (let-alist data
+    (forge-issue-post
+     :id nil)))
+
 
 
 ;;; Pull
@@ -79,29 +109,46 @@
   (let* ((buf (current-buffer))
         (dir default-directory)
         (cb (lambda (data) nil))
-        (data (forge--fetch-issues repo cb until)))
+        (repository (forge--fetch-repository repo cb))
+        (issues (forge--fetch-issues repo cb until)))
 
-        (let-alist data
-        (print "AAA")
+
+
+    ;; TODO forge--update-repository and set issues-p
+    (emacsql-with-transaction (forge-db)
+        (oset repo sparse-p nil)
+        (oset repo issues-p t)
+        (print "A00")
+        (forge--update-repository repo repository)
+
+        )
+
+    (print "AAA")
         ;; (emacsql-with-transaction (forge-db)
-          (print "A11")
-          (dolist (v .issues)   (forge--update-issue-2 repo v))
-          ;; (dolist (v .issues) (print v))
-          ;; (forge--update-issue-2 repo (car .issues))
-          (print "A22")
+    (print "A11")
+    (dolist (v issues) (forge--update-issue-2 repo v))
+    ;; (dolist (v .issues) (print v))
+    ;; (forge--update-issue-2 repo (car .issues))
+    (print "A22")
 
-          )
         )
     )
 
 
 
 (cl-defmethod forge--fetch-repository ((repo forge-pagure-repository) callback)
-  (forge--glab-get repo "/:project" nil
-    :callback (lambda (value _headers _status _req)
-                (when (magit-get-boolean "forge.omitexpensive")
-                  (setq value (append '((assignees) (forks) (labels)) value)))
-                (funcall callback callback value))))
+  (forge--pagure-get repo "/:project"))
+
+
+(cl-defmethod forge--update-repository ((repo forge-pagure-repository) data)
+  (print "FOO")
+  (print (forge-repository-from-alist data))
+  (let-alist (forge-repository-from-alist data)
+    (print "GGG")
+    ;; TODO continue here and oset all attributes in alist
+    (print .created)
+    (print "G11")))
+
 
 
 ;;; issues
@@ -134,7 +181,20 @@
     (print "BBB")
 
     ;; TODO We need to go through all pages
-    (forge--pagure-get repo "/:project/issues")
+
+    ;; (let ((response (forge--pagure-get repo "/:project/issues")))
+    ;;   (oref response issues)
+
+    ;;   )
+
+    (let-alist (forge--pagure-get repo "/:project/issues")
+      ;; (oref response issues)
+      .issues
+
+      )
+
+    ;; TODO
+    ;; (oref (forge--pagure-get repo "/:project/issues") issues)
 
     )
   )
@@ -177,6 +237,19 @@
 ;;; mutations
 
 ;;; utilities
+
+(defun timestamp-to-iso (timestamp)
+  "Pagure API returns dates in form of Unix timestamps. One other peculiarity is
+that it returns the numeric value as a string, so we need to convert it to int,
+and then transform it into ISO 8601 Format.
+
+See http://ergoemacs.org/emacs/elisp_datetime.html
+"
+  (let ((number (string-to-number timestamp)))
+    (concat
+     (format-time-string "%Y-%m-%dT%T" number)
+     ((lambda (x) (concat (substring x 0 3) ":" (substring x 3 5)))
+      (format-time-string "%z" number)))))
 
 (cl-defun forge--pagure-get (obj resource
                                &optional params
