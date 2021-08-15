@@ -31,6 +31,12 @@
 (require 'forge-issue)
 (require 'forge-pullreq)
 
+
+;; Example endpoints
+;; https://pagure.io/api/0/copr/copr
+;; https://pagure.io/api/0/copr/copr/issues?per_page=20&page=1
+
+
 ;;; Class
 
 (defclass forge-pagure-repository (forge-repository)
@@ -49,11 +55,31 @@
    ))
 
 
+;;; Pull
+
+(cl-defmethod forge--pull ((repo forge-pagure-repository) until)
+  (let* ((buf (current-buffer))
+        (dir default-directory)
+        (cb (lambda (data) nil))
+        (repository (forge--fetch-repository repo cb))
+        (issues (forge--fetch-issues repo cb until)))
+
+
+    (forge--update-repository repo repository)
+    (forge--update-issues repo issues t)
+    (print "Everything updated")))
+
+
 ;;; Factories / Decoders
 ;;; APIs evolve, grow, and change. Let's do the Elm approach here and define a
 ;;; minimal functions (decoders) just for parsing the fetched JSON.
 
 (defun forge-repository-from-alist (data)
+  "Convert project JSON response to an alist with the keys corresponding to our
+database column names.
+See the 'Project information' section for the JSON schema
+https://pagure.io/api/0/#projects-tab
+"
   (let-alist data
     (list
      (cons 'created (timestamp-to-iso .date_created))
@@ -63,7 +89,7 @@
      (cons 'description .description)
      (cons 'homepage nil)
      (cons 'default-branch nil) ; TODO Needs additional request
-     (cons 'archived nil) ; TODO Make sure there is no archiving in pagure
+     (cons 'archived-p nil) ; TODO Make sure there is no archiving in pagure
      (cons 'fork-p nil) ; TODO
      (cons 'locked-p nil) ; TODO
      (cons 'mirror-p nil)
@@ -74,7 +100,12 @@
      (cons 'watchers 0) ; TODO Needs additional request
      )))
 
+
 (defun forge-issue-from-alist (repo data)
+  "Convert a single issue from an issues JSON response into an object.
+See the 'List project\'s issues' section for the JSON schema
+https://pagure.io/api/0/#issues-tab
+"
   (let-alist data
     (forge-issue
      :id (forge--object-id 'forge-issue repo .id)
@@ -92,68 +123,35 @@
      :milestone nil ; TODO
      :body (forge--sanitize-string .content))))
 
-;; TODO continue here
-(defun forge-issue-post-from-alist (issue-id data)
+
+(defun forge-issue-post-from-alist (repo issue-id data)
+  "Convert a single issue comment from an issues JSON response into an object.
+See the 'Comment of an issue' section for the JSON schema
+https://pagure.io/api/0/#issues-tab
+"
   (let-alist data
     (forge-issue-post
-     :id nil)))
+     :id (forge--object-id issue-id .id)
+     :issue issue-id
+     :number .id
+     :author .user.name
+     :created (timestamp-to-iso .date_created)
+     :updated nil ;; TODO Maybe it is present in JSON only for updated comments
+     :body .comment)))
 
 
-
-;;; Pull
-;;; Repository
-
-(cl-defmethod forge--pull ((repo forge-pagure-repository) until)
-
-
-  (let* ((buf (current-buffer))
-        (dir default-directory)
-        (cb (lambda (data) nil))
-        (repository (forge--fetch-repository repo cb))
-        (issues (forge--fetch-issues repo cb until)))
-
-
-
-    ;; TODO forge--update-repository and set issues-p
-    (emacsql-with-transaction (forge-db)
-        (oset repo sparse-p nil)
-        (oset repo issues-p t)
-        (print "A00")
-        (forge--update-repository repo repository)
-
-        )
-
-    (print "AAA")
-        ;; (emacsql-with-transaction (forge-db)
-    (print "A11")
-    (dolist (v issues) (forge--update-issue-2 repo v))
-    ;; (dolist (v .issues) (print v))
-    ;; (forge--update-issue-2 repo (car .issues))
-    (print "A22")
-
-        )
-    )
-
-
+;;; GET API endpoints
+;;; TODO API methods need to return decoded objects, not raw responses.
+;;;      Therefore database methods could take them instead of having to
+;;;      create them within themselves
 
 (cl-defmethod forge--fetch-repository ((repo forge-pagure-repository) callback)
+  "Request Pagure API for information about a project/repository"
   (forge--pagure-get repo "/:project"))
 
 
-(cl-defmethod forge--update-repository ((repo forge-pagure-repository) data)
-  (print "FOO")
-  (print (forge-repository-from-alist data))
-  (let-alist (forge-repository-from-alist data)
-    (print "GGG")
-    ;; TODO continue here and oset all attributes in alist
-    (print .created)
-    (print "G11")))
-
-
-
-;;; issues
-
 (cl-defmethod forge--fetch-issues ((repo forge-pagure-repository) callback until)
+  "Request Pagure API for information about a project issues"
   (let ((cb (let (val cur cnt pos)
               (lambda (cb &optional v)
                 (cond
@@ -178,40 +176,58 @@
                     (funcall callback callback (cons 'issues val)))))))))
     (forge--msg repo t nil "pulling repo issues")
 
-    (print "BBB")
-
     ;; TODO We need to go through all pages
-
-    ;; (let ((response (forge--pagure-get repo "/:project/issues")))
-    ;;   (oref response issues)
-
-    ;;   )
-
     (let-alist (forge--pagure-get repo "/:project/issues")
-      ;; (oref response issues)
-      .issues
+      .issues)
 
-      )
-
-    ;; TODO
-    ;; (oref (forge--pagure-get repo "/:project/issues") issues)
-
-    )
-  )
+    ))
 
 
-(cl-defmethod forge--update-issue-2 ((repo forge-pagure-repository) data)
-  (print "DDD")
+;;; Database
+
+(cl-defmethod forge--update-repository ((repo forge-pagure-repository) data)
+  (emacsql-with-transaction (forge-db)
+    (let ((repository (forge-repository-from-alist data)))
+      (loop for pair in repository
+            do (setf (slot-value repo (car pair)) (cdr pair))))))
+
+
+(cl-defmethod forge--update-issues ((repo forge-pagure-repository) issues bump)
+  (emacsql-with-transaction (forge-db)
+    (dolist (v issues) (forge--update-issue repo v bump))))
+
+
+(cl-defmethod forge--update-issue ((repo forge-pagure-repository) data bump)
   (emacsql-with-transaction (forge-db)
     (let-alist data
       (let ((issue (forge-issue-from-alist repo data)))
-        (print issue)
         (closql-insert (forge-db) issue t)
-        (print "EEE")
-        ;; TODO Update also issue comments
-        ))
+        (forge--update-issue-posts repo (slot-value issue :id) .comments)))))
 
-))
+
+(cl-defmethod forge--update-issue-posts ((repo forge-pagure-repository)
+                                         issue-id
+                                         comments)
+  (emacsql-with-transaction (forge-db)
+    (dolist (v comments) (forge--update-issue-post repo issue-id v))))
+
+
+(cl-defmethod forge--update-issue-post ((repo forge-pagure-repository)
+                                        issue-id
+                                        comment)
+  (emacsql-with-transaction (forge-db)
+    (closql-insert
+     (forge-db)
+     (forge-issue-post-from-alist repo issue-id comment))))
+
+
+
+
+
+
+
+
+
 
 ;;; pullreqs
 
