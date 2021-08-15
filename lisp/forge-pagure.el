@@ -153,35 +153,9 @@ https://pagure.io/api/0/#issues-tab
 
 (cl-defmethod forge--fetch-issues ((repo forge-pagure-repository) callback until)
   "Request Pagure API for information about a project issues"
-  (let ((cb (let (val cur cnt pos)
-              (lambda (cb &optional v)
-                (cond
-                 ((not pos)
-                  (if (setq cur (setq val v))
-                      (progn
-                        (setq pos 1)
-                        (setq cnt (length val))
-                        (forge--msg nil nil nil "pulling issue %s/%s" pos cnt)
-                        ;; (forge--fetch-issue-posts repo cur cb)
-                        )
-                    (forge--msg repo t t "pulling repo issues")
-                    (funcall callback callback (cons 'issues val))))
-                 (t
-                  (if (setq cur (cdr cur))
-                      (progn
-                        (cl-incf pos)
-                        (forge--msg nil nil nil "pulling issue %s/%s" pos cnt)
-                        ;; (forge--fetch-issue-posts repo cur cb)
-                        )
-                    (forge--msg repo t t "pulling repo issues")
-                    (funcall callback callback (cons 'issues val)))))))))
-    (forge--msg repo t nil "pulling repo issues")
-
-    ;; TODO We need to go through all pages
-    (let-alist (forge--pagure-get repo "/:project/issues")
-      .issues)
-
-    ))
+  ;; TODO We need to go through all pages
+  (let-alist (forge--pagure-get repo "/:project/issues")
+      .issues))
 
 
 (cl-defmethod forge--get-issues ((repo forge-pagure-repository) data)
