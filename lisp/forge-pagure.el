@@ -147,7 +147,8 @@ https://pagure.io/api/0/#issues-tab
 
 (cl-defmethod forge--fetch-repository ((repo forge-pagure-repository) callback)
   "Request Pagure API for information about a project/repository"
-  (forge--pagure-get repo "/:project"))
+  (let ((response (forge--pagure-get repo "/:project")))
+    (forge-repository-from-alist response)))
 
 
 (cl-defmethod forge--fetch-issues ((repo forge-pagure-repository) callback until)
@@ -183,13 +184,23 @@ https://pagure.io/api/0/#issues-tab
     ))
 
 
+(cl-defmethod forge--get-issues ((repo forge-pagure-repository) data)
+  nil)
+
+
+(cl-defmethod forge--get-issue-posts ((repo forge-pagure-repository)
+                                      issue-id
+                                      data)
+  nil)
+
+
+
 ;;; Database
 
-(cl-defmethod forge--update-repository ((repo forge-pagure-repository) data)
+(cl-defmethod forge--update-repository ((repo forge-pagure-repository) project)
   (emacsql-with-transaction (forge-db)
-    (let ((repository (forge-repository-from-alist data)))
-      (loop for pair in repository
-            do (setf (slot-value repo (car pair)) (cdr pair))))))
+    (loop for pair in project
+          do (setf (slot-value repo (car pair)) (cdr pair)))))
 
 
 (cl-defmethod forge--update-issues ((repo forge-pagure-repository) issues bump)
