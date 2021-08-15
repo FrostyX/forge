@@ -158,17 +158,6 @@ https://pagure.io/api/0/#issues-tab
       .issues))
 
 
-(cl-defmethod forge--get-issues ((repo forge-pagure-repository) data)
-  nil)
-
-
-(cl-defmethod forge--get-issue-posts ((repo forge-pagure-repository)
-                                      issue-id
-                                      data)
-  nil)
-
-
-
 ;;; Database
 
 (cl-defmethod forge--update-repository ((repo forge-pagure-repository) project)
@@ -187,6 +176,8 @@ https://pagure.io/api/0/#issues-tab
     (let-alist data
       (let ((issue (forge-issue-from-alist repo data)))
         (closql-insert (forge-db) issue t)
+        ;; FIXME We depend on knowledge of the JSON structure. That should be
+        ;;       dealt with in fetch function
         (forge--update-issue-posts repo (slot-value issue :id) .comments)))))
 
 
