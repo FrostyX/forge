@@ -2,8 +2,8 @@
 
 ;; Copyright (C) 2021  Jakub Kadlčík
 
-;; Author: Jonas Bernoulli <frostyx@email.cz>
-;; Maintainer: Jonas Bernoulli <frostyx@email.cz>
+;; Author: Jakub Kadlčík <frostyx@email.cz>
+;; Maintainer: Jakub Kadlčík <frostyx@email.cz>
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
