@@ -136,8 +136,7 @@ https://pagure.io/api/0/#pull_requests-tab
      :repository   (oref repo id)
      :number       .id
      :state        (pcase-exhaustive .status
-                     ; TODO 'merged and 'closed
-                     ("Open" 'open))
+                     ("Open" 'open)) ; TODO 'merged and 'closed
      :author       .user.name
      :title        .title
      :created      (timestamp-to-iso .date_created)
@@ -156,8 +155,7 @@ https://pagure.io/api/0/#pull_requests-tab
      :milestone    nil ; TODO
      ;; There is no project description per se.
      ;; Pagure treats it as a first comment.
-     ;; TODO but we actually need to read the first comment here
-     :body         nil)))
+     :body         (alist-get 'comment (car .comments)))))
 
 
 (defun forge-issue-post-from-alist (repo issue-id data)
@@ -253,7 +251,12 @@ https://pagure.io/api/0/#issues-tab
         (closql-insert (forge-db) pullreq t)
         ;; FIXME We depend on knowledge of the JSON structure. That should be
         ;;       dealt with in fetch function
-        (forge--update-pullreq-posts repo (slot-value pullreq :id) .comments)))))
+        (forge--update-pullreq-posts
+         repo
+         (slot-value pullreq :id)
+
+         ;; We already used the first comment as the PR description
+         (cdr .comments))))))
 
 
 (cl-defmethod forge--update-issue-posts ((repo forge-pagure-repository)
