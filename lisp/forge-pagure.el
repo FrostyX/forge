@@ -62,11 +62,12 @@
         (dir default-directory)
         (cb (lambda (data) nil))
         (repository (forge--fetch-repository repo cb))
-        (issues (forge--fetch-issues repo cb until)))
-
+        (issues (forge--fetch-issues repo cb until))
+        (pullreqs (forge--fetch-pullreqs repo cb until)))
 
     (forge--update-repository repo repository)
     (forge--update-issues repo issues t)
+    (forge--update-pullreqs repo pullreqs t)
     (print "Everything updated")))
 
 
@@ -124,6 +125,41 @@ https://pagure.io/api/0/#issues-tab
      :body (forge--sanitize-string .content))))
 
 
+(defun forge-pullreq-from-alist (repo data)
+  "Convert a single PR from an PRs JSON response into an object.
+See the 'List project\'s Pull-Requests' section for the JSON schema
+https://pagure.io/api/0/#pull_requests-tab
+"
+  (let-alist data
+    (forge-pullreq
+     :id           (forge--object-id 'forge-pullreq repo .id)
+     :repository   (oref repo id)
+     :number       .id
+     :state        (pcase-exhaustive .status
+                     ; TODO 'merged and 'closed
+                     ("Open" 'open))
+     :author       .user.name
+     :title        .title
+     :created      (timestamp-to-iso .date_created)
+     :updated      (timestamp-to-iso .updated_on)
+     :closed       (and .closed_at (timestamp-to-iso .closed_at))
+     :merged       nil ; TODO there is no field for it, check closed status
+     :locked-p     nil
+     :editable-p   nil ; TODO
+     :cross-repo-p nil ; TODO how are these defined anyway?
+     :base-ref     .branch
+     :base-repo    .project.fullname
+     :head-repo    .project.repo_from.user.name
+     :head-ref     .branch_from
+     :head-repo    .project.repo_from.user.name
+     :head-repo    .project.repo_from.fullname
+     :milestone    nil ; TODO
+     ;; There is no project description per se.
+     ;; Pagure treats it as a first comment.
+     ;; TODO but we actually need to read the first comment here
+     :body         nil)))
+
+
 (defun forge-issue-post-from-alist (repo issue-id data)
   "Convert a single issue comment from an issues JSON response into an object.
 See the 'Comment of an issue' section for the JSON schema
@@ -133,6 +169,23 @@ https://pagure.io/api/0/#issues-tab
     (forge-issue-post
      :id (forge--object-id issue-id .id)
      :issue issue-id
+     :number .id
+     :author .user.name
+     :created (timestamp-to-iso .date_created)
+     :updated nil ;; TODO Maybe it is present in JSON only for updated comments
+     :body .comment)))
+
+
+(defun forge-pullreq-post-from-alist (repo pullreq-id data)
+  "Convert a single PR comment from an PRs JSON response into an object.
+See the 'Comment of an issue' section for the JSON schema
+https://pagure.io/api/0/#issues-tab
+(There is no pull-requests-specific documentation section)
+"
+  (let-alist data
+    (forge-pullreq-post
+     :id (forge--object-id pullreq-id .id)
+     :pullreq pullreq-id
      :number .id
      :author .user.name
      :created (timestamp-to-iso .date_created)
@@ -158,6 +211,13 @@ https://pagure.io/api/0/#issues-tab
       .issues))
 
 
+(cl-defmethod forge--fetch-pullreqs ((repo forge-pagure-repository) callback until)
+  "Request Pagure API for information about a project pull requests"
+  ;; TODO We need to go through all pages
+  (let-alist (forge--pagure-get repo "/:project/pull-requests")
+      .requests))
+
+
 ;;; Database
 
 (cl-defmethod forge--update-repository ((repo forge-pagure-repository) project)
@@ -171,6 +231,11 @@ https://pagure.io/api/0/#issues-tab
     (dolist (v issues) (forge--update-issue repo v bump))))
 
 
+(cl-defmethod forge--update-pullreqs ((repo forge-pagure-repository) pullreqs bump)
+  (emacsql-with-transaction (forge-db)
+    (dolist (v pullreqs) (forge--update-pullreq repo v bump))))
+
+
 (cl-defmethod forge--update-issue ((repo forge-pagure-repository) data bump)
   (emacsql-with-transaction (forge-db)
     (let-alist data
@@ -181,11 +246,28 @@ https://pagure.io/api/0/#issues-tab
         (forge--update-issue-posts repo (slot-value issue :id) .comments)))))
 
 
+(cl-defmethod forge--update-pullreq ((repo forge-pagure-repository) data bump)
+  (emacsql-with-transaction (forge-db)
+    (let-alist data
+      (let ((pullreq (forge-pullreq-from-alist repo data)))
+        (closql-insert (forge-db) pullreq t)
+        ;; FIXME We depend on knowledge of the JSON structure. That should be
+        ;;       dealt with in fetch function
+        (forge--update-pullreq-posts repo (slot-value pullreq :id) .comments)))))
+
+
 (cl-defmethod forge--update-issue-posts ((repo forge-pagure-repository)
                                          issue-id
                                          comments)
   (emacsql-with-transaction (forge-db)
     (dolist (v comments) (forge--update-issue-post repo issue-id v))))
+
+
+(cl-defmethod forge--update-pullreq-posts ((repo forge-pagure-repository)
+                                         pullreq-id
+                                         comments)
+  (emacsql-with-transaction (forge-db)
+    (dolist (v comments) (forge--update-pullreq-post repo pullreq-id v))))
 
 
 (cl-defmethod forge--update-issue-post ((repo forge-pagure-repository)
@@ -196,6 +278,14 @@ https://pagure.io/api/0/#issues-tab
      (forge-db)
      (forge-issue-post-from-alist repo issue-id comment))))
 
+
+(cl-defmethod forge--update-pullreq-post ((repo forge-pagure-repository)
+                                        pullreq-id
+                                        comment)
+  (emacsql-with-transaction (forge-db)
+    (closql-insert
+     (forge-db)
+     (forge-pullreq-post-from-alist repo pullreq-id comment))))
 
 
 
